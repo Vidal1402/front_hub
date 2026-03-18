@@ -513,9 +513,10 @@ function OverviewPage({ onNavigate }) {
 /* ═══════════════════════════════════════════════════
    PAGE: CLIENTES
 ═══════════════════════════════════════════════════ */
-function ClientesPage({ openAddModal, onAddModalConsumed }) {
+function ClientesPage({ openAddModal, onAddModalConsumed, perms }) {
   const t = useT();
   const { token } = useAuth();
+  const canWrite = perms?.canWriteAny !== false; // admin escreve; gestor/colab não
   const [clientes, setClientes] = useState([]);
   const [colaboradores, setColaboradores] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -579,6 +580,7 @@ function ClientesPage({ openAddModal, onAddModalConsumed }) {
   useEffect(load, [token]);
 
   const openAddForm = () => { setFormError(null); setAddOpen(true); };
+  const openAddFormSafe = () => { if (!canWrite) { setErr("Você não tem permissão para criar clientes."); return; } openAddForm(); };
 
   const STATUS_OPTS = ["Todos","Ativo","Pausado","Inadimplente"];
   const statusNorm = (s) => (s || "").toLowerCase();
@@ -592,6 +594,7 @@ function ClientesPage({ openAddModal, onAddModalConsumed }) {
 
   const handleAdd = (e) => {
     e?.preventDefault?.();
+    if (!canWrite) { setFormError("Você não tem permissão para criar/editar clientes."); return; }
     setFormError(null);
     setSubmitting(true);
     const body = { nome: form.nome, email: form.email, segmento: form.segmento, plano: form.plano, status: form.status, cidade: form.cidade, owner_uuid: form.owner_uuid || undefined };
@@ -616,6 +619,7 @@ function ClientesPage({ openAddModal, onAddModalConsumed }) {
   };
   const handleEdit = () => {
     if (!cl?.uuid && !cl?.id) return;
+    if (!canWrite) { setErr("Você não tem permissão para editar clientes."); return; }
     setSubmitting(true);
     const id = cl.uuid || cl.id;
     apiPut(token, `/api/admin/clientes/${id}`, { nome: form.nome, email: form.email, segmento: form.segmento, plano: form.plano, status: form.status, cidade: form.cidade, owner_uuid: form.owner_uuid || undefined })
@@ -625,6 +629,7 @@ function ClientesPage({ openAddModal, onAddModalConsumed }) {
   };
   const handleDesativar = () => {
     if (!cl?.uuid && !cl?.id) return;
+    if (!canWrite) { setErr("Você não tem permissão para desativar clientes."); return; }
     if (!confirm("Desativar este cliente?")) return;
     const id = cl.uuid || cl.id;
     apiPut(token, `/api/admin/clientes/${id}/desativar`, null)
@@ -641,6 +646,7 @@ function ClientesPage({ openAddModal, onAddModalConsumed }) {
   const handleCriarAcesso = (e) => {
     e?.preventDefault?.();
     if (!cl?.email || (!cl?.uuid && !cl?.id)) return;
+    if (!canWrite) { setAccessError("Você não tem permissão para liberar acesso."); return; }
     if (!accessPassword || accessPassword.length < 6) {
       setAccessError("Defina uma senha com no mínimo 6 caracteres.");
       return;
@@ -691,7 +697,7 @@ function ClientesPage({ openAddModal, onAddModalConsumed }) {
   return (
     <div>
       <PageHeader title="Clientes" sub={`${clientes.length} clientes cadastrados`}
-        action={<Btn onClick={openAddForm} type="button">+ Novo Cliente</Btn>}/>
+        action={canWrite ? <Btn onClick={openAddFormSafe} type="button">+ Novo Cliente</Btn> : null}/>
 
       <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:18, flexWrap:"wrap" }}>
         <FilterBar opts={STATUS_OPTS} active={filter} onChange={setFilter} label="STATUS"/>
@@ -738,11 +744,13 @@ function ClientesPage({ openAddModal, onAddModalConsumed }) {
               <div style={{ color:t.t1, fontSize:18, fontWeight:800 }}>{cl.nome||cl.name}</div>
               <div style={{ color:t.t3, fontSize:12, marginTop:4 }}>{(cl.segmento||cl.seg)||""} · {(cl.cidade||cl.city)||""} · {createdLabel(cl)}</div>
             </div>
-            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-              <Btn v="primary" sz="sm" onClick={openAccessForm} disabled={!cl.email}>🔑 Liberar acesso ao dashboard</Btn>
-              <Btn v="ghost" sz="sm" onClick={openEdit}>✏ Editar</Btn>
-              <Btn v="danger" sz="sm" onClick={handleDesativar}>⊘ Desativar</Btn>
-            </div>
+            {canWrite && (
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                <Btn v="primary" sz="sm" onClick={openAccessForm} disabled={!cl.email}>🔑 Liberar acesso ao dashboard</Btn>
+                <Btn v="ghost" sz="sm" onClick={openEdit}>✏ Editar</Btn>
+                <Btn v="danger" sz="sm" onClick={handleDesativar}>⊘ Desativar</Btn>
+              </div>
+            )}
           </div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12, marginBottom:20 }}>
             {[
@@ -841,9 +849,10 @@ function ClientesPage({ openAddModal, onAddModalConsumed }) {
 /* ═══════════════════════════════════════════════════
    PAGE: COLABORADORES
 ═══════════════════════════════════════════════════ */
-function ColabsPage() {
+function ColabsPage({ perms }) {
   const t = useT();
   const { token } = useAuth();
+  const canWrite = perms?.canWriteAny !== false; // só admin
   const [colaboradores, setColaboradores] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
@@ -887,6 +896,7 @@ function ColabsPage() {
 
   const handleAdd = (e) => {
     e?.preventDefault?.();
+    if (!canWrite) { setFormError("Você não tem permissão para criar/editar colaboradores."); return; }
     setFormError(null);
     setSubmitting(true);
     apiPost(token, "/api/admin/colaboradores", { nome: form.nome, email: form.email, cargo: form.cargo, role: form.role, status: form.status })
@@ -912,6 +922,7 @@ function ColabsPage() {
   const handleCriarAcessoColab = (e) => {
     e?.preventDefault?.();
     if (!cl?.email) return;
+    if (!canWrite) { setAccessError("Você não tem permissão para liberar acesso."); return; }
     if (!accessPassword || accessPassword.length < 6) { setAccessError("Defina uma senha com no mínimo 6 caracteres."); return; }
     setAccessSubmitting(true); setAccessError(null); setAccessSuccess(null);
     apiPost(token, "/api/admin/usuarios", { email: cl.email, password: accessPassword, role: "admin", can_producao: true, can_performance: true })
@@ -934,6 +945,7 @@ function ColabsPage() {
 
   const handleEdit = () => {
     if (!cl?.uuid && !cl?.id) return;
+    if (!canWrite) { setErr("Você não tem permissão para editar colaboradores."); return; }
     setSubmitting(true);
     const id = cl.uuid || cl.id;
     apiPut(token, `/api/admin/colaboradores/${id}`, { nome: form.nome, email: form.email, cargo: form.cargo, role: form.role, status: form.status })
@@ -951,7 +963,7 @@ function ColabsPage() {
   return (
     <div>
       <PageHeader title="Colaboradores" sub={`${colaboradores.length} membros · ${onlineCount} online`}
-        action={<Btn onClick={openAddForm} type="button">+ Novo Colaborador</Btn>}/>
+        action={canWrite ? <Btn onClick={openAddForm} type="button">+ Novo Colaborador</Btn> : null}/>
 
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12 }}>
         {colaboradores.map(c => {
@@ -990,10 +1002,12 @@ function ColabsPage() {
                 <div style={{ marginTop:16, paddingTop:16, borderTop:`1px solid ${t.b1}` }}>
                   <div style={{ color:t.t3, fontSize:10, marginBottom:6 }}>{c.email}</div>
                   <div style={{ color:t.t3, fontSize:10, marginBottom:12 }}>{createdLabel(c) ? `Desde ${createdLabel(c)}` : ""}</div>
-                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                    <Btn sz="sm" v="primary" onClick={openAccessForm}>🔑 Liberar acesso (login)</Btn>
-                    <Btn sz="sm" v="ghost" onClick={openEdit}>✏ Editar</Btn>
-                  </div>
+                  {canWrite && (
+                    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                      <Btn sz="sm" v="primary" onClick={openAccessForm}>🔑 Liberar acesso (login)</Btn>
+                      <Btn sz="sm" v="ghost" onClick={openEdit}>✏ Editar</Btn>
+                    </div>
+                  )}
                 </div>
               )}
             </Card>
@@ -1472,9 +1486,10 @@ const CATEGORIA_OPTS = [
   { value: "ia",        label: "United IA" },
   { value: "crm",       label: "CRM United" },
 ];
-function ProdutosPage() {
+function ProdutosPage({ perms }) {
   const t = useT();
   const { token } = useAuth();
+  const canWrite = perms?.canWriteAny !== false; // só admin
   const [section, setSection] = useState("marketing");
   const [addOpen, setAddOpen]   = useState(false);
   const [editItem, setEditItem] = useState(null);
@@ -1511,6 +1526,7 @@ function ProdutosPage() {
   }, [token, section]);
 
   const handleCreateProduto = () => {
+    if (!canWrite) { setProductError("Você não tem permissão para criar/editar produtos."); return; }
     if (!productForm.name?.trim()) { setProductError("Informe o nome do produto."); return; }
     setProductError(null);
     setProductSubmitting(true);
@@ -1743,7 +1759,7 @@ function ProdutosPage() {
         </div>
         <div style={{ flex:1 }}/>
         <Btn v="ghost" sz="sm" onClick={handleExportProdutos}>↓ Exportar Tabela</Btn>
-        <Btn sz="sm" onClick={()=>setAddOpen(true)}>+ Adicionar</Btn>
+        {canWrite && <Btn sz="sm" onClick={()=>setAddOpen(true)}>+ Adicionar</Btn>}
       </div>
 
       {/* MARKETING PLANS */}
@@ -1910,9 +1926,10 @@ function ProdutosPage() {
 /* ═══════════════════════════════════════════════════
    PAGE: ALERTAS
 ═══════════════════════════════════════════════════ */
-function AlertasPage() {
+function AlertasPage({ perms }) {
   const t = useT();
   const { token } = useAuth();
+  const canWrite = perms?.canWriteAny !== false; // só admin pode resolver
   const [alertas, setAlertas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("Todos");
@@ -1951,6 +1968,7 @@ function AlertasPage() {
 
   const resolver = (id) => {
     if (!token || !id) return;
+    if (!canWrite) { setAlertasError("Você não tem permissão para resolver alertas."); return; }
     setAlertasError(null);
     setResolvingId(id);
     apiPut(token, `/api/admin/alertas/${encodeURIComponent(id)}/resolver`)
@@ -2023,7 +2041,7 @@ function AlertasPage() {
               </div>
               <StatusBadge s={status}/>
               <div style={{ display:"flex", gap:6 }}>
-                {status==="Ativo" && id && (
+                {canWrite && status==="Ativo" && id && (
                   <Btn v="success" sz="sm" onClick={()=>resolver(id)} disabled={resolving}>{resolving ? "..." : "✓ Resolver"}</Btn>
                 )}
               </div>
@@ -2038,9 +2056,10 @@ function AlertasPage() {
 /* ═══════════════════════════════════════════════════
    PAGE: NOTIFICAÇÕES
 ═══════════════════════════════════════════════════ */
-function NotificacoesPage() {
+function NotificacoesPage({ perms }) {
   const t = useT();
   const { token } = useAuth();
+  const canWrite = perms?.canWriteAny !== false; // só admin envia
   const [tab, setTab] = useState("nova");
   const [form, setForm] = useState({ titulo:"", conteudo:"", target:"Todos os clientes", canal:"Email" });
   const [enviadas, setEnviadas] = useState([]);
@@ -2062,6 +2081,7 @@ function NotificacoesPage() {
   const handleEnviar = (e) => {
     e?.preventDefault?.();
     if (!token || !form.titulo) return;
+    if (!canWrite) { setFormError("Você não tem permissão para enviar notificações."); return; }
     setFormError(null);
     setSubmitting(true);
     apiPost(token, "/api/admin/notificacoes/enviar", { titulo: form.titulo, conteudo: form.conteudo, target: form.target, canal: form.canal })
@@ -2121,7 +2141,11 @@ function NotificacoesPage() {
               </FormField>
             </div>
             <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:8 }}>
-              <Btn type="button" onClick={handleEnviar} disabled={submitting || !form.titulo}>{submitting ? "Enviando…" : "📨 Enviar Notificação"}</Btn>
+              {canWrite ? (
+                <Btn type="button" onClick={handleEnviar} disabled={submitting || !form.titulo}>{submitting ? "Enviando…" : "📨 Enviar Notificação"}</Btn>
+              ) : (
+                <Tag label="Somente visualização" color={t.t2} bg={t.bg4}/>
+              )}
             </div>
           </Card>
           <div>
@@ -2241,9 +2265,10 @@ function RelatoriosAdmPage() {
    PAGE: DISPONIBILIZAR (conteúdo por cliente)
    Frontend pronto para os endpoints do BACKEND_PROMPT_DISPONIBILIZAR.md
 ═══════════════════════════════════════════════════ */
-function DisponibilizarPage() {
+function DisponibilizarPage({ perms }) {
   const t = useT();
   const { token } = useAuth();
+  const canWrite = perms?.canWriteDisponibilizar !== false; // gestor e admin podem editar aqui
   const [tab, setTab] = useState("relatorios");
   const [clientes, setClientes] = useState([]);
   const [relatorios, setRelatorios] = useState([]);
@@ -2384,6 +2409,7 @@ function DisponibilizarPage() {
 
   const submitRelatorio = (e) => {
     e?.preventDefault?.();
+    if (!canWrite) { setSubmitError("Você não tem permissão para alterar Disponibilizar."); return; }
     if (!formRelatorio.cliente_uuid || !formRelatorio.titulo?.trim()) { setSubmitError("Selecione o cliente e informe o título."); return; }
     setSubmitError(null); setSubmitting(true);
     apiPost(token, "/api/admin/relatorios", { cliente_uuid: formRelatorio.cliente_uuid, titulo: formRelatorio.titulo.trim(), tipo: formRelatorio.tipo, periodo: formRelatorio.periodo || undefined, file_url: formRelatorio.file_url || undefined })
@@ -2393,6 +2419,7 @@ function DisponibilizarPage() {
   };
   const submitReuniao = (e) => {
     e?.preventDefault?.();
+    if (!canWrite) { setSubmitError("Você não tem permissão para alterar Disponibilizar."); return; }
     if (!formReuniao.cliente_uuid || !formReuniao.titulo?.trim()) { setSubmitError("Selecione o cliente e informe o título."); return; }
     setSubmitError(null); setSubmitting(true);
     apiPost(token, "/api/admin/reunioes", { cliente_uuid: formReuniao.cliente_uuid, titulo: formReuniao.titulo.trim(), data_hora: formReuniao.data_hora || undefined, via: formReuniao.via, duracao_min: parseInt(formReuniao.duracao_min, 10) || 60 })
@@ -2402,6 +2429,7 @@ function DisponibilizarPage() {
   };
   const submitChamado = (e) => {
     e?.preventDefault?.();
+    if (!canWrite) { setSubmitError("Você não tem permissão para alterar Disponibilizar."); return; }
     if (!formChamado.cliente_uuid || !formChamado.titulo?.trim()) { setSubmitError("Selecione o cliente e informe o título."); return; }
     setSubmitError(null); setSubmitting(true);
     apiPost(token, "/api/admin/chamados", { cliente_uuid: formChamado.cliente_uuid, titulo: formChamado.titulo.trim(), descricao: formChamado.descricao || undefined, categoria: formChamado.categoria })
@@ -2411,6 +2439,7 @@ function DisponibilizarPage() {
   };
   const submitPasta = (e) => {
     e?.preventDefault?.();
+    if (!canWrite) { setSubmitError("Você não tem permissão para alterar Disponibilizar."); return; }
     if (!formPasta.cliente_uuid || !formPasta.nome?.trim()) { setSubmitError("Selecione o cliente e informe o nome da pasta."); return; }
     setSubmitError(null); setSubmitting(true);
     const cuid = formPasta.cliente_uuid;
@@ -2523,6 +2552,7 @@ function DisponibilizarPage() {
   };
   const saveChannelInfo = () => {
     if (!token || !selectedClienteCanais) return;
+    if (!canWrite) { setChannelInfoError("Você não tem permissão para alterar Disponibilizar."); return; }
     setChannelInfoError(null);
     setChannelInfoSuccess(false);
     setSavingChannelInfo(true);
@@ -2544,6 +2574,7 @@ function DisponibilizarPage() {
   const getClienteCanal = (c) => canalByCliente[c.uuid || c.id] ?? c.canal ?? c.Canal ?? "Todos";
   const handleCanalChange = (clienteId, canal) => {
     if (!token || !clienteId) return;
+    if (!canWrite) { setCanalError("Você não tem permissão para alterar Disponibilizar."); return; }
     setCanalError(null);
     setSavingCanalId(clienteId);
     apiPut(token, `/api/admin/clientes/${encodeURIComponent(clienteId)}`, { canal })
@@ -2584,7 +2615,7 @@ function DisponibilizarPage() {
             <Card style={{ overflow:"hidden" }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
                 <div style={{ color:t.t1, fontWeight:700, fontSize:13 }}>Relatórios por cliente</div>
-                <Btn type="button" onClick={()=>{ setModalRelatorio(true); setSubmitError(null); }}>+ Novo relatório</Btn>
+                {canWrite ? <Btn type="button" onClick={()=>{ setModalRelatorio(true); setSubmitError(null); }}>+ Novo relatório</Btn> : <Tag label="Somente visualização" color={t.t2} bg={t.bg4}/>}
               </div>
               {relatorios.length === 0 ? <div style={{ padding:24, color:t.t3, textAlign:"center" }}>Nenhum relatório. Use &quot;Novo relatório&quot; (requer backend POST /api/admin/relatorios).</div> : (
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 100px 120px 80px", gap:12, padding:"10px 16px", background:t.bg3, borderBottom:`1px solid ${t.b1}` }}>
@@ -2655,8 +2686,14 @@ function DisponibilizarPage() {
                         )}
                       </div>
                       <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                        <Btn type="button" onClick={() => { setFormPasta({ cliente_uuid: selectedClienteMateriais, parent_uuid: pastaAtual?.uuid || "", nome: "", icone: "📁" }); setModalPasta(true); setSubmitError(null); setArchiveError(null); }}>📁 Nova pasta</Btn>
-                        <Btn type="button" v="primary" onClick={() => { setFormArquivo({ cliente_uuid: selectedClienteMateriais, pasta_uuid: pastaAtual?.uuid || "", nome: "", url: "" }); setArquivosSelecionados([]); setModalArquivo(true); setSubmitError(null); setArchiveError(null); }}>⬆ Fazer upload</Btn>
+                        {canWrite ? (
+                          <>
+                            <Btn type="button" onClick={() => { setFormPasta({ cliente_uuid: selectedClienteMateriais, parent_uuid: pastaAtual?.uuid || "", nome: "", icone: "📁" }); setModalPasta(true); setSubmitError(null); setArchiveError(null); }}>📁 Nova pasta</Btn>
+                            <Btn type="button" v="primary" onClick={() => { setFormArquivo({ cliente_uuid: selectedClienteMateriais, pasta_uuid: pastaAtual?.uuid || "", nome: "", url: "" }); setArquivosSelecionados([]); setModalArquivo(true); setSubmitError(null); setArchiveError(null); }}>⬆ Fazer upload</Btn>
+                          </>
+                        ) : (
+                          <Tag label="Somente visualização" color={t.t2} bg={t.bg4}/>
+                        )}
                       </div>
                     </div>
                     {archiveError && (
@@ -2734,7 +2771,7 @@ function DisponibilizarPage() {
             <Card style={{ overflow:"hidden" }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
                 <div style={{ color:t.t1, fontWeight:700, fontSize:13 }}>Reuniões por cliente</div>
-                <Btn type="button" onClick={()=>{ setModalReuniao(true); setSubmitError(null); }}>+ Nova reunião</Btn>
+                {canWrite ? <Btn type="button" onClick={()=>{ setModalReuniao(true); setSubmitError(null); }}>+ Nova reunião</Btn> : <Tag label="Somente visualização" color={t.t2} bg={t.bg4}/>}
               </div>
               {reunioes.length === 0 ? <div style={{ padding:24, color:t.t3, textAlign:"center" }}>Nenhuma reunião. Use &quot;Nova reunião&quot; (requer backend POST /api/admin/reunioes).</div> : (
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 140px 100px", gap:12, padding:"10px 16px", background:t.bg3, borderBottom:`1px solid ${t.b1}` }}>
@@ -2755,7 +2792,7 @@ function DisponibilizarPage() {
             <Card style={{ overflow:"hidden" }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
                 <div style={{ color:t.t1, fontWeight:700, fontSize:13 }}>Chamados por cliente</div>
-                <Btn type="button" onClick={()=>{ setModalChamado(true); setSubmitError(null); }}>+ Novo chamado</Btn>
+                {canWrite ? <Btn type="button" onClick={()=>{ setModalChamado(true); setSubmitError(null); }}>+ Novo chamado</Btn> : <Tag label="Somente visualização" color={t.t2} bg={t.bg4}/>}
               </div>
               {chamados.length === 0 ? <div style={{ padding:24, color:t.t3, textAlign:"center" }}>Nenhum chamado. Use &quot;Novo chamado&quot; (requer backend POST /api/admin/chamados e GET /api/admin/chamados).</div> : (
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 90px 100px", gap:12, padding:"10px 16px", background:t.bg3, borderBottom:`1px solid ${t.b1}` }}>
@@ -3814,8 +3851,31 @@ export default function AdmApp() {
   const [fading, setFading] = useState(false);
   const [openAddClientModal, setOpenAddClientModal] = useState(false);
   const t = theme;
-  const userName = user?.name || "Admin";
+  const userName = user?.name || user?.email || "Usuário";
   const userInitials = (userName||"A").split(/\s+/).map(s=>s[0]).join("").slice(0,2).toUpperCase();
+
+  const roleRaw = String(user?.role ?? user?.cargo ?? user?.type ?? "").trim().toLowerCase();
+  const roleLabel = roleRaw.includes("gestor") ? "Gestor" : (roleRaw.includes("colaborador") || roleRaw.includes("integrante")) ? "Colaborador" : "Admin";
+  const isAdmin = roleLabel === "Admin";
+  const isGestor = roleLabel === "Gestor";
+  const isColab = roleLabel === "Colaborador";
+  const perms = {
+    roleLabel,
+    // Visualização
+    canViewFinanceiro: isAdmin || isGestor,
+    // Edição
+    canWriteDisponibilizar: isAdmin || isGestor,
+    canWriteAny: isAdmin,
+    // Conveniência
+    isAdmin,
+    isGestor,
+    isColab,
+  };
+
+  const navItems = ADM_NAV.filter((it) => {
+    if (it.id === "financeiro" && !perms.canViewFinanceiro) return false;
+    return true;
+  });
 
   const goPage = (p, openAdd) => {
     setFading(true);
@@ -3873,7 +3933,7 @@ export default function AdmApp() {
                 <div style={{ color:C.red, fontSize:7, letterSpacing:2.5, textTransform:"uppercase", marginBottom:4 }}>Usuário</div>
                 <div style={{ color:t.t1, fontSize:11, fontWeight:700 }}>{userName}</div>
                 <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:4 }}>
-                  <Tag label="Super Admin" color={C.red} bg={C.redBg}/>
+                  <Tag label={roleLabel} color={C.red} bg={C.redBg}/>
                 </div>
               </div>
             </div>
@@ -3881,7 +3941,7 @@ export default function AdmApp() {
 
           {/* Nav */}
           <nav style={{ flex:1, padding:"10px 6px", overflowY:"auto" }}>
-            {ADM_NAV.map(item => {
+            {navItems.map(item => {
               const active = page===item.id;
               return (
                 <div key={item.id} onClick={()=>goPage(item.id)}
@@ -3940,7 +4000,7 @@ export default function AdmApp() {
                   <span style={{ color:t.t2, fontSize:8, fontWeight:800 }}>{userInitials}</span>
                 </div>
                 <span style={{ color:t.t2, fontSize:11, fontWeight:600 }}>{userName}</span>
-                <Tag label="Admin" color={C.red} bg={C.redBg}/>
+                <Tag label={roleLabel} color={C.red} bg={C.redBg}/>
               </div>
             </div>
           </header>
@@ -3948,17 +4008,17 @@ export default function AdmApp() {
           {/* CONTENT */}
           <main style={{ flex:1, overflowY:"auto", padding:"28px 30px", background:t.bg0, transition:"background .3s" }}>
             <div className={fading?"leave":"enter"} key={page+isDark}>
-              {page==="overview"      && <OverviewPage onNavigate={(p, openAdd)=>goPage(p, openAdd)}/>}
-              {page==="clientes"      && <ClientesPage openAddModal={openAddClientModal} onAddModalConsumed={()=>setOpenAddClientModal(false)}/>}
-              {page==="colaboradores" && <ColabsPage/>}
-              {page==="financeiro"    && <FinanceiroPage/>}
-              {page==="produtos"       && <ProdutosPage/>}
-              {page==="alertas"       && <AlertasPage/>}
-              {page==="notificacoes"  && <NotificacoesPage/>}
-              {page==="relatorios"    && <RelatoriosAdmPage/>}
-              {page==="disponibilizar" && <DisponibilizarPage/>}
-              {page==="producao"      && <ProducaoAdmPage/>}
-              {page==="comercial"     && <ComercialPage/>}
+              {page==="overview"      && <OverviewPage onNavigate={(p, openAdd)=>goPage(p, openAdd)} perms={perms}/>}
+              {page==="clientes"      && <ClientesPage openAddModal={openAddClientModal} onAddModalConsumed={()=>setOpenAddClientModal(false)} perms={perms}/>}
+              {page==="colaboradores" && <ColabsPage perms={perms}/>}
+              {page==="financeiro"    && (perms.canViewFinanceiro ? <FinanceiroPage perms={perms}/> : <Card style={{ padding:22 }}><div style={{ color:t.t1, fontWeight:800, fontSize:14, marginBottom:6 }}>Acesso restrito</div><div style={{ color:t.t3, fontSize:12, lineHeight:1.6 }}>Você não tem permissão para visualizar o Financeiro.</div></Card>)}
+              {page==="produtos"       && <ProdutosPage perms={perms}/>}
+              {page==="alertas"       && <AlertasPage perms={perms}/>}
+              {page==="notificacoes"  && <NotificacoesPage perms={perms}/>}
+              {page==="relatorios"    && <RelatoriosAdmPage perms={perms}/>}
+              {page==="disponibilizar" && <DisponibilizarPage perms={perms}/>}
+              {page==="producao"      && <ProducaoAdmPage perms={perms}/>}
+              {page==="comercial"     && <ComercialPage perms={perms}/>}
             </div>
           </main>
         </div>

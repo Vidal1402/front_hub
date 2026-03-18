@@ -340,18 +340,30 @@ function ThemeToggle({ isDark, onToggle }) {
 /* ═══════════════════════════════════════════════
    MODE SWITCH
 ═══════════════════════════════════════════════ */
-function ModeSwitch({ mode, onChange, canProducao = true, canPerformance = true }) {
+function ModeSwitch({ mode, onChange, canProducao = true, canPerformance = true, performanceDisabledReason = "" }) {
   const t = useT();
-  if (!canProducao || !canPerformance) return null;
+  if (!canProducao && !canPerformance) return null;
   return (
     <div style={{ position:"relative", display:"inline-flex", background:t.bg3, border:`1px solid ${t.b1}`, borderRadius:11, padding:3, gap:1 }}>
       <div style={{ position:"absolute", top:3, bottom:3, left: mode==="producao" ? 3 : "calc(50% + 1px)", width:"calc(50% - 4px)",
         background:t.accent, borderRadius:9, transition:"left .26s cubic-bezier(.4,0,.2,1)", boxShadow:`0 1px 6px ${t.shadow}` }}/>
       {[{ id:"producao",label:"Produção",icon:"⬡" },{ id:"performance",label:"Performance",icon:"◈" }].map(opt => (
-        <button key={opt.id} onClick={() => onChange(opt.id)} style={{ position:"relative", zIndex:1, display:"flex", alignItems:"center", gap:6,
-          padding:"8px 20px", background:"transparent", border:"none", borderRadius:9, cursor:"pointer", minWidth:128, justifyContent:"center", transition:"all .2s" }}>
+        <button
+          key={opt.id}
+          onClick={() => onChange(opt.id)}
+          disabled={(opt.id === "producao" && !canProducao) || (opt.id === "performance" && !canPerformance)}
+          title={opt.id === "performance" && !canPerformance ? (performanceDisabledReason || "Recurso indisponível") : ""}
+          style={{ position:"relative", zIndex:1, display:"flex", alignItems:"center", gap:6,
+            padding:"8px 20px", background:"transparent", border:"none", borderRadius:9,
+            cursor: ((opt.id === "producao" && !canProducao) || (opt.id === "performance" && !canPerformance)) ? "not-allowed" : "pointer",
+            opacity: ((opt.id === "producao" && !canProducao) || (opt.id === "performance" && !canPerformance)) ? 0.55 : 1,
+            minWidth:128, justifyContent:"center", transition:"all .2s" }}
+        >
           <span style={{ fontSize:12, color: mode===opt.id ? t.accentText : t.t3, transition:"color .22s" }}>{opt.icon}</span>
           <span style={{ fontSize:12, fontWeight:700, color: mode===opt.id ? t.accentText : t.t3, transition:"color .22s" }}>{opt.label}</span>
+          {opt.id === "performance" && !canPerformance && (
+            <span style={{ fontSize: 11, color: mode===opt.id ? t.accentText : t.t3, marginLeft: 2 }} title={performanceDisabledReason || "Recurso indisponível"}>🔒</span>
+          )}
         </button>
       ))}
     </div>
@@ -771,6 +783,21 @@ const CANAL_LABELS_CLIENT = { meta_ads: "Meta Ads", google_ads: "Google Ads", or
 function PerformancePage() {
   const t = useT();
   const { token, user } = useAuth();
+  const [planoNome, setPlanoNome] = useState("");
+  const [planoLoading, setPlanoLoading] = useState(true);
+  const [planoError, setPlanoError] = useState(false);
+  const normPlan = (v) => String(v || "").trim().toLowerCase();
+  const isStarterPlan = (v) => {
+    const s = normPlan(v);
+    return s === "starter" || s.includes("starter");
+  };
+  const baseCanPerformance = user?.can_performance === true;
+  const planFromUser = user?.plano ?? user?.plan ?? user?.plano_nome ?? user?.plan_name ?? user?.planoName;
+  const isStarter = isStarterPlan(planoNome) || isStarterPlan(planFromUser);
+  // Segurança: se o plano ainda não carregou, não libera Performance.
+  // Regra de negócio: Starter bloqueia. Growth+ libera (desde que can_performance=true).
+  // Não bloqueie Growth por atraso/erro ao carregar o plano; use o carregamento apenas para mensagem.
+  const canPerformance = baseCanPerformance && !isStarter;
   const [channel, setChannel] = useState("Todos");
   const [period, setPeriod] = useState("12m");
   const [kpis, setKpis] = useState([]);
@@ -781,6 +808,26 @@ function PerformancePage() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
+    if (!token || !API_URL) { setPlanoLoading(false); return; }
+    let cancelled = false;
+    setPlanoLoading(true);
+    setPlanoError(false);
+    apiGet(token, "/api/cliente/financeiro/plano")
+      .then(r => r.ok ? r.json().catch(() => null) : null)
+      .then((pl) => {
+        if (cancelled) return;
+        const nome = pl?.nome ?? pl?.plano ?? pl?.name ?? pl?.plan ?? pl?.data?.nome ?? pl?.data?.plano ?? "";
+        const nomeStr = String(nome || "").trim();
+        if (!nomeStr) throw new Error("plano vazio");
+        setPlanoNome(nomeStr);
+      })
+      .catch(() => { if (!cancelled) setPlanoError(true); })
+      .finally(() => { if (!cancelled) setPlanoLoading(false); });
+    return () => { cancelled = true; };
+  }, [token]);
+
+  useEffect(() => {
+    if (!canPerformance) { setLoading(false); return; }
     if (!token || !API_URL) { setLoading(false); return; }
     let cancelled = false;
     const pathChart = `/api/cliente/dashboard/chart${period ? `?period=${period}` : ""}`;
@@ -839,7 +886,7 @@ function PerformancePage() {
       setPerformanceChannels(pcPerfil || pcAuthMe || pcUser || null);
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [token, period, user, refreshKey]);
+  }, [token, period, user, refreshKey, canPerformance]);
 
   const normKpiPerf = (k) => ({ label: k.label ?? k.Label ?? "—", value: k.value ?? k.Value ?? "—", delta: k.delta ?? k.Delta ?? "", sub: k.sub ?? k.Sub ?? "" });
   const kpisFromApi = kpis.length ? kpis.map(normKpiPerf) : [];
@@ -871,6 +918,31 @@ function PerformancePage() {
   ] : [{ label: "—", value: "—", delta: "", sub: "" }, { label: "—", value: "—", delta: "", sub: "" }, { label: "—", value: "—", delta: "", sub: "" }, { label: "—", value: "—", delta: "", sub: "" }]);
   const chartPoints = (chartData.length ? chartData : []).map((x) => ({ m: x.m ?? x.M ?? x.label ?? x.Label ?? "—", leads: x.leads ?? x.Leads ?? x.value ?? x.Value ?? 0, inv: x.inv ?? x.Inv ?? 0, conv: x.conv ?? x.Conv ?? 0 }));
   const funnelStages = (funnel.length ? funnel : []).map((x) => ({ s: x.s ?? x.S ?? x.stage ?? x.Stage ?? x.label ?? x.Label ?? "—", v: x.v ?? x.V ?? x.value ?? x.Value ?? 0, p: x.p ?? x.P ?? 0 }));
+
+  if (planoLoading) return <div style={{ padding: 24, color: t.t3, fontSize: 13 }}>Carregando plano...</div>;
+
+  if (!canPerformance) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Card style={{ padding: 22, background: t.bg2, border: `1px solid ${t.b1}` }}>
+          <div style={{ color: t.t1, fontWeight: 800, fontSize: 14, marginBottom: 6 }}>Acesso ao painel de Performance bloqueado</div>
+          <div style={{ color: t.t3, fontSize: 12, lineHeight: 1.6 }}>
+            Para acessar o painel de Performance, você precisa <strong>adquirir um plano acima do atual</strong> (plano <strong>Growth</strong> ou superior).
+          </div>
+          {!!planoNome && (
+            <div style={{ marginTop: 10, color: t.t4, fontSize: 11 }}>
+              Plano atual: <strong style={{ color: t.t2 }}>{planoNome}</strong>
+            </div>
+          )}
+          {planoError && !planoNome && (
+            <div style={{ marginTop: 10, color: t.t4, fontSize: 11 }}>
+              Não foi possível confirmar seu plano agora. O acesso é bloqueado apenas quando o plano é identificado como Starter.
+            </div>
+          )}
+        </Card>
+      </div>
+    );
+  }
 
   if (loading) return <div style={{ padding: 24, color: t.t3, fontSize: 13 }}>Carregando performance...</div>;
 
@@ -1059,6 +1131,8 @@ function MateriaisPage() {
   const [pastas, setPastas] = useState([]);
   const [arquivos, setArquivos] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState("");
+  const [downloadError, setDownloadError] = useState("");
   const [showUpload, setShowUpload] = useState(false);
   const [uploadForm, setUploadForm] = useState({ pasta_uuid: "", nome: "", extensao: "", tamanho: "", url: "" });
   const [uploadStatus, setUploadStatus] = useState({ loading: false, error: "" });
@@ -1096,6 +1170,57 @@ function MateriaisPage() {
   const allFiles = arquivos.map(a => ({ name: a.nome || a.name, ext: (a.extensao || a.ext || "").toUpperCase(), size: a.tamanho || a.size || "—", date: a.data || a.date || "—", pasta_uuid: a.pasta_uuid, url: a.url || null }));
   const files = folder ? allFiles.filter(f=>!f.pasta_uuid || f.pasta_uuid===folder).filter(f=>f.name.toLowerCase().includes(search.toLowerCase())) : allFiles.slice(0, 5);
 
+  const buildFilename = (f) => {
+    const rawName = (f?.name || "arquivo").trim();
+    const ext = String(f?.ext || "").trim().toLowerCase();
+    const hasExt = ext && rawName.toLowerCase().endsWith(`.${ext}`);
+    return hasExt ? rawName : (ext ? `${rawName}.${ext}` : rawName);
+  };
+
+  const downloadArquivo = async (f) => {
+    setDownloadError("");
+    const url = f?.url;
+    if (!url) { setDownloadError("Este arquivo não tem URL para download."); return; }
+    const filename = buildFilename(f);
+    setDownloading(filename);
+    try {
+      const isHttp = /^https?:\/\//i.test(url);
+      const isApiUrl = API_URL && (url.startsWith(API_URL) || url.startsWith("/"));
+
+      // Para URL pública (http), tenta baixar via <a download>. Para rota protegida (API), baixa como blob com Bearer token.
+      if (isHttp && !isApiUrl) {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.rel = "noopener noreferrer";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        return;
+      }
+
+      const fullUrl = url.startsWith("http") ? url : `${API_URL}${url}`;
+      const res = await fetch(fullUrl, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || err?.message || `Erro ao baixar (${res.status})`);
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      setDownloadError(err?.message || "Erro ao baixar arquivo.");
+    } finally {
+      setDownloading("");
+    }
+  };
+
   const Row = ({ f, i, last }) => (
     <div style={{ display:"flex", alignItems:"center", gap:14, padding:"13px 18px",
       background:t.bg2, borderTop:i>0?`1px solid ${t.b1}`:undefined, transition:"background .14s" }}
@@ -1110,7 +1235,25 @@ function MateriaisPage() {
       </div>
       <Tag label={f.ext} color={t.t2} bg={t.bg4}/>
       <div style={{ display:"flex", gap:6 }}>
-        {f.url && <a href={f.url} target="_blank" rel="noopener noreferrer" style={{ padding:"5px 10px", borderRadius:8, border:`1px solid ${t.b1}`, background:"transparent", color:t.t2, fontSize:11, textDecoration:"none" }}>↓</a>}
+        <button
+          type="button"
+          onClick={() => downloadArquivo(f)}
+          disabled={!!downloading && downloading === buildFilename(f)}
+          title={f.url ? "Baixar arquivo" : "Sem URL de download"}
+          style={{
+            padding: "5px 10px",
+            borderRadius: 8,
+            border: `1px solid ${t.b1}`,
+            background: "transparent",
+            color: f.url ? t.t2 : t.t4,
+            fontSize: 11,
+            textDecoration: "none",
+            cursor: f.url ? "pointer" : "not-allowed",
+            opacity: f.url ? 1 : 0.6,
+          }}
+        >
+          {downloading === buildFilename(f) ? "..." : "↓"}
+        </button>
       </div>
     </div>
   );
@@ -1165,6 +1308,7 @@ function MateriaisPage() {
             <span style={{ position:"absolute", left:13, top:"50%", transform:"translateY(-50%)", color:t.t3, fontSize:14 }}>🔍</span>
             <input placeholder="Buscar arquivos e pastas..." style={{ width:"100%", maxWidth:380, padding:"9px 14px 9px 40px", background:t.bg3, border:`1px solid ${t.b1}`, borderRadius:9, color:t.t1, fontSize:12, outline:"none" }}/>
           </div>
+          {downloadError && <div style={{ marginBottom: 14, color: C.red, fontSize: 12 }}>{downloadError}</div>}
           <div style={{ color:t.t4, fontSize:9, fontWeight:800, letterSpacing:2, textTransform:"uppercase", marginBottom:14 }}>PASTAS</div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:28 }}>
             {folders.map(f => (
@@ -1909,21 +2053,96 @@ function ConfigPage() {
    ROOT APP
 ═══════════════════════════════════════════════ */
 export default function DashboardApp() {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const navigate = useNavigate();
   const canProducao = user?.can_producao !== false;
-  const canPerformance = user?.can_performance === true;
-  const defaultMode = canProducao ? "producao" : "performance";
+  const baseCanPerformance = user?.can_performance === true;
+  const [planoNome, setPlanoNome] = useState("");
+  const [planoLoading, setPlanoLoading] = useState(true);
+  const [planoError, setPlanoError] = useState(false);
+  const normPlan = (v) => String(v || "").trim().toLowerCase();
+  const isStarterPlan = (v) => {
+    const s = normPlan(v);
+    return s === "starter" || s.includes("starter");
+  };
+  const planFromUser = user?.plano ?? user?.plan ?? user?.plano_nome ?? user?.plan_name ?? user?.planoName;
+  const isStarter = isStarterPlan(planoNome) || isStarterPlan(planFromUser);
+  // Regra de negócio: Starter bloqueia. Growth+ libera (desde que can_performance=true).
+  // Não bloqueie Growth por atraso/erro ao carregar o plano; use o carregamento apenas para mensagem.
+  const canPerformance = baseCanPerformance && !isStarter;
+  const performanceDisabledReason = isStarter
+    ? "Disponível apenas em planos Growth+"
+    : (planoLoading ? "Carregando seu plano..." : (planoError ? "Não foi possível confirmar seu plano agora" : ""));
 
   const [isDark, setIsDark] = useState(true);
   const theme = isDark ? DARK : LIGHT;
   const [page,      setPage]      = useState("dashboard");
-  const [mode,      setMode]      = useState(defaultMode);
+  const [mode,      setMode]      = useState("producao");
   const [collapsed, setCollapsed] = useState(false);
   const [fading,    setFading]    = useState(false);
+  const [clienteDesativado, setClienteDesativado] = useState(false);
+  const [clienteStatusLabel, setClienteStatusLabel] = useState("");
+
+  const statusNorm = (s) => String(s || "").trim().toLowerCase();
+  const isDesativado = (s) => {
+    const v = statusNorm(s);
+    return v.includes("desativ") || v === "inativo" || v.includes("inativ") || v.includes("bloquead");
+  };
+
+  useEffect(() => {
+    if (!token || !API_URL) return;
+    let cancelled = false;
+    setPlanoLoading(true);
+    setPlanoError(false);
+    apiGet(token, "/api/cliente/financeiro/plano")
+      .then(r => r.ok ? r.json().catch(() => null) : null)
+      .then((pl) => {
+        if (cancelled) return;
+        const nome = pl?.nome ?? pl?.plano ?? pl?.name ?? pl?.plan ?? pl?.data?.nome ?? pl?.data?.plano ?? "";
+        const nomeStr = String(nome || "").trim();
+        if (!nomeStr) throw new Error("plano vazio");
+        setPlanoNome(nomeStr);
+      })
+      .catch(() => { if (!cancelled) setPlanoError(true); })
+      .finally(() => { if (!cancelled) setPlanoLoading(false); });
+    return () => { cancelled = true; };
+  }, [token]);
+
+  // Bloqueio de acesso: cliente desativado não entra no dashboard.
+  useEffect(() => {
+    if (!token || !API_URL) return;
+    let cancelled = false;
+    // 1) tenta inferir do próprio user, se existir
+    const possibleUserStatus = user?.status ?? user?.cliente_status ?? user?.client_status ?? user?.cliente?.status ?? user?.client?.status;
+    if (possibleUserStatus && isDesativado(possibleUserStatus)) {
+      setClienteDesativado(true);
+      setClienteStatusLabel(String(possibleUserStatus));
+      return () => { cancelled = true; };
+    }
+    // 2) fonte confiável: perfil do cliente
+    apiGet(token, "/api/cliente/config/perfil")
+      .then(r => r.ok ? r.json().catch(() => ({})) : {})
+      .then((perfil) => {
+        if (cancelled) return;
+        const st = perfil?.status ?? perfil?.Status ?? perfil?.data?.status ?? "";
+        if (st) setClienteStatusLabel(String(st));
+        setClienteDesativado(isDesativado(st));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token, user]);
 
   useEffect(() => {
     if (!user) return;
+    // Inicializa modo de forma consistente com permissões e plano.
+    setMode((cur) => {
+      const preferred = canProducao ? "producao" : (canPerformance ? "performance" : "producao");
+      if (cur === preferred) return cur;
+      // se o modo atual está inválido, corrige; senão, mantém
+      if (cur === "performance" && !canPerformance) return "producao";
+      if (cur === "producao" && !canProducao) return canPerformance ? "performance" : "producao";
+      return cur;
+    });
     if (mode === "performance" && !canPerformance) setMode("producao");
     if (mode === "producao" && !canProducao) setMode("performance");
   }, [user, canProducao, canPerformance]);
@@ -1953,6 +2172,24 @@ export default function DashboardApp() {
 
   return (
     <ThemeCtx.Provider value={theme}>
+      {clienteDesativado ? (
+        <div style={{ minHeight: "100vh", background: theme.bg0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <Card style={{ padding: 26, maxWidth: 520, width: "100%" }}>
+            <div style={{ color: theme.t1, fontWeight: 900, fontSize: 16, marginBottom: 8 }}>Acesso bloqueado</div>
+            <div style={{ color: theme.t3, fontSize: 12, lineHeight: 1.6, marginBottom: 12 }}>
+              Este cliente está <strong>desativado</strong> e não pode acessar o dashboard.
+            </div>
+            {!!clienteStatusLabel && (
+              <div style={{ color: theme.t4, fontSize: 11, marginBottom: 14 }}>
+                Status: <strong style={{ color: theme.t2 }}>{clienteStatusLabel}</strong>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Btn variant="ghost" size="sm" onClick={handleLogout}>Sair</Btn>
+            </div>
+          </Card>
+        </div>
+      ) : (
       <div style={{ display:"flex", height:"100vh", background:t.bg0, overflow:"hidden", transition:"background .3s" }}>
         <style>{`
           @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -2047,7 +2284,7 @@ export default function DashboardApp() {
 
             {isMain && (
               <div style={{ flex:1, display:"flex", justifyContent:"center" }}>
-                <ModeSwitch mode={mode} onChange={switchMode} canProducao={canProducao} canPerformance={canPerformance}/>
+                <ModeSwitch mode={mode} onChange={switchMode} canProducao={canProducao} canPerformance={canPerformance} performanceDisabledReason={performanceDisabledReason}/>
               </div>
             )}
 
@@ -2093,6 +2330,7 @@ export default function DashboardApp() {
           </main>
         </div>
       </div>
+      )}
     </ThemeCtx.Provider>
   );
 }
